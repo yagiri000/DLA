@@ -2,7 +2,11 @@
 # include <vector>
 # include <algorithm>
 
-constexpr double G_Dist = 25.0;
+constexpr double G_Dist = 30.0;
+
+double MaxElemDist = 0.0;
+constexpr double DifMEDist = 2.0;
+
 
 struct Elem {
 public:
@@ -13,7 +17,6 @@ public:
 	Vec3 pos;
 
 	void Draw() {
-		//Sphere(pos, R).draw();
 		static Sphere sphere;
 		sphere.setPos(pos);
 		sphere.setSize(R);
@@ -21,7 +24,6 @@ public:
 	}
 
 	void DrawWhite() {
-		//Sphere(pos, R).draw();
 		static Sphere sphere;
 		sphere.setPos(pos);
 		sphere.setSize(R);
@@ -29,12 +31,8 @@ public:
 	}
 
 	void Move() {
-		pos += RandomVec3(R);
-		/*if(false){
-			auto dir = pos.normalized();
-			dir *= -1.0;
-			pos += dir * R * 0.1;
-		}*/
+		pos += RandomVec3(R * 2.0);
+
 		if (pos.distanceFrom(Vec3::Zero) > G_Dist) {
 			auto dir = pos.normalized();
 			pos = dir * (G_Dist - 0.5);
@@ -51,7 +49,7 @@ const double Elem::R = 0.2;
 
 std::vector<Elem*> elems;
 
-constexpr double AreaR = G_Dist + 2.0;
+const double AreaR = G_Dist + 2.0;
 Vec3 MAX(AreaR, AreaR, AreaR);
 Vec3 MIN(-AreaR, -AreaR, -AreaR);
 const int D = 4;
@@ -64,8 +62,9 @@ Box GetBoxFromMinMax(const Vec3& min, const Vec3& max) {
 	return Box((min + max) * 0.5, max - min);
 }
 
-void SetNewElem(Elem* const ptr) {
+void EmplaceNewElem(Elem* const ptr) {
 	elems.emplace_back(ptr);
+	MaxElemDist = Max(ptr->pos.distanceFrom(Vec3::Zero), MaxElemDist);
 
 	for (size_t i = 0; i < D; i++)
 	{
@@ -115,10 +114,78 @@ Elem* IsCollision(Elem* ptr) {
 	return nullptr;
 }
 
+// 軌跡描画用クラス
+// pointsを描画、subPointsは
+class Trail {
+public:
+
+	class Points {
+	public:
+		std::vector<Vec3> vecs;
+		size_t index;
+		static const int MAX;
+
+
+		Points() :
+			index(0)
+		{
+			vecs.resize(MAX);
+		}
+
+		void Reset() {
+			index = 0;
+		}
+
+		void Emplace(const Vec3& point) {
+			vecs[index] = point;
+			index++;
+		}
+
+		void Copy(const Points& rhs) {
+			for (size_t i = 0; i < rhs.index; i++) {
+				vecs[i] = rhs.vecs[i];
+			}
+			index = rhs.index;
+		}
+	};
+
+	static const double R;
+
+	Points points;
+	Points buffer;
+
+	void Draw() {
+		static Sphere sphere;
+		for (size_t i = 0; i < points.index; i++) {
+			sphere.setPos(points.vecs[i]);
+			sphere.setSize(R);
+			sphere.draw(HueToColor(i * 360.0 / 10000.0));
+		}
+	}
+
+	void EmplaceBuffer(const Vec3& point) {
+		buffer.Emplace(point);
+	}
+
+	void Reset() {
+		points.Reset();
+	}
+
+	void ResetBuffer() {
+		buffer.Reset();
+	}
+
+	void BufferToMain() {
+		points.Copy(buffer);
+	}
+};
+
+
+const double Trail::R = 0.2;
+const int Trail::Points::MAX = 80000;
 
 void Main()
 {
-
 	for (size_t i = 0; i < D; i++)
 	{
 		for (size_t j = 0; j < D; j++)
@@ -138,17 +205,20 @@ void Main()
 		}
 	}
 
-	const Font font(14);
-
 	elems.reserve(11000);
 
+
 	// 最初の一点を生成
-	SetNewElem(new Elem(RandomVec3(0.0)));
+	EmplaceNewElem(new Elem(RandomVec3(0.0)));
+
+	bool endFrag = false;
+
+	//Trail trail;
+
+	const Font font(14);
 
 	Graphics3D::SetCamera(Camera(
 		Vec3(0.0, 0.0, -10.0), Vec3::Zero, Vec3(0.0, 1.0, 0.0), 60.0, 0.01));
-
-	bool endFrag = false;
 
 
 	while (System::Update())
@@ -156,33 +226,40 @@ void Main()
 		font(L"NUM : " + std::to_wstring(elems.size())).draw(Vec2(10.0, 10.0));
 		font(Profiler::FPS(), L"fps").draw(Vec2(10.0, 30.0));
 
-		if (elems.size() < 99999 && !endFrag) {
-			Elem elem(RandomVec3(G_Dist));
-			// Elem elem(Vec3::Right * G_Dist);
+		//trail.ResetBuffer();
+
+		if (elems.size() < 29999 && !endFrag) {
+			Elem elem(Vec3::Right * G_Dist);
+			//Elem elem(RandomVec3(G_Dist));
 			elem.Draw();
 
-			for (size_t i = 0; i < 20000; i++)
+			for (size_t i = 0; i < 40000; i++)
 			{
 				elem.Move();
+				//trail.EmplaceBuffer(elem.pos);
 
 				auto e = IsCollision(&elem);
 				if (e) {
 					auto dir = (elem.pos - e->pos).normalize();
 					elem.pos = e->pos + dir * (e->R + elem.R);
-					SetNewElem(new Elem(elem));
+					EmplaceNewElem(new Elem(elem));
 					if (elem.pos.distanceFrom(Vec3::Zero) > G_Dist - 0.5) {
 						endFrag = true;
 					}
+					//trail.BufferToMain();
 					break;
 				}
-				elem.DrawWhite();
 			}
 
-			elem.Draw();
+			// elem.Draw();
 		}
+
 		for (auto&& i : elems) {
 			i->Draw();
+			//i->DrawWhite();
 		}
+
+		//trail.Draw();
 
 		if (Input::KeyC.pressed) {
 
